@@ -1,11 +1,13 @@
 import os
 import base64
 import re
+import json
 from typing import List, Dict
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from google.auth.exceptions import RefreshError
 import anthropic
 from dotenv import load_dotenv
 
@@ -19,23 +21,57 @@ def get_gmail_service():
     """Authenticate and return Gmail service"""
     creds = None
     
-    # Load existing token if it exists
-    if os.path.exists('token.json'):
+    # Try to load from environment variable first (for cloud deployment)
+    token_json = os.getenv('GOOGLE_TOKEN_JSON')
+    if token_json:
+        try:
+            token_data = json.loads(token_json)
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"Error parsing GOOGLE_TOKEN_JSON environment variable: {e}")
+    
+    # Fallback to local file (for development)
+    if not creds and os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
     
-    # If no valid credentials, authenticate
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            # Refresh expired token
-            creds.refresh(Request())
+    # If no valid credentials found, fail
+    if not creds:
+        raise Exception("No valid credentials available. Set GOOGLE_TOKEN_JSON environment variable or provide token.json file.")
+    
+    # Handle token refresh
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
+            try:
+                print("Refreshing expired token...")
+                creds.refresh(Request())
+                print("Token refreshed successfully.")
+                
+                # Update local token.json if it exists (for development)
+                if os.path.exists('token.json'):
+                    with open('token.json', 'w') as token:
+                        token.write(creds.to_json())
+                        
+            except RefreshError as e:
+                raise Exception(f"Token refresh failed: {e}. Manual re-authentication required.")
         else:
-            # Run OAuth flow
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        
-        # Save credentials for next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+            # No refresh token available - need interactive auth
+            if os.getenv('RENDER') or os.getenv('DEPLOYMENT'):
+                # In cloud environment, can't do interactive auth
+                raise Exception("No refresh token available and running in headless environment. Manual re-authentication required.")
+            else:
+                # Local development - run interactive OAuth flow
+                print("Running interactive OAuth flow...")
+                credentials_json = os.getenv('GOOGLE_CREDENTIALS_JSON')
+                if credentials_json:
+                    credentials_data = json.loads(credentials_json)
+                    flow = InstalledAppFlow.from_client_config(credentials_data, SCOPES)
+                else:
+                    flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                creds = flow.run_local_server(port=0)
+                
+                # Save credentials for next run
+                with open('token.json', 'w') as token:
+                    token.write(creds.to_json())
     
     return build('gmail', 'v1', credentials=creds)
 
