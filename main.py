@@ -110,29 +110,27 @@ def extract_email_content(email_msg: Dict) -> Dict:
         'id': email_msg['id']
     }
 
-def summarize_with_claude(email_content: Dict) -> str:
-    """Send email content to Claude for summarization"""
+def summarize_emails_batch(all_emails_text: str) -> str:
+    """Send all emails to Claude for batch summarization"""
     client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
     
-    prompt = f"""Please provide a concise summary of this email:
+    prompt = f"""Please provide a comprehensive summary of all these unread emails. For each email, give a brief summary, and then provide an overall summary at the end highlighting the most important items and any action items.
 
-Subject: {email_content['subject']}
-From: {email_content['sender']}
+{all_emails_text}
 
-Content:
-{email_content['body'][:4000]}  # Limit content to avoid token limits
-
-Please summarize the key points, important information, and any action items in 2-3 sentences."""
+Please organize your response as:
+1. Individual email summaries (1-2 sentences each)
+2. Overall summary with key themes and action items"""
 
     try:
         response = client.messages.create(
             model="claude-3-5-sonnet-20240620",
-            max_tokens=200,
+            max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
         return response.content[0].text
     except Exception as e:
-        return f"Error summarizing email: {e}"
+        return f"Error summarizing emails: {e}"
 
 def main():
     """Main function to process unread emails"""
@@ -153,20 +151,38 @@ def main():
         print("No unread emails found.")
         return
     
-    # Process each email
+    # Collect all emails into a single string
+    all_emails_text = ""
+    
     for i, email in enumerate(emails, 1):
-        print(f"\n--- Email {i}/{len(emails)} ---")
-        
-        # Extract content
         content = extract_email_content(email)
-        print(f"Subject: {content['subject']}")
-        print(f"From: {content['sender']}")
         
-        # Summarize with Claude
-        print("Generating summary...")
-        summary = summarize_with_claude(content)
-        print(f"Summary: {summary}")
-        print("-" * 50)
+        # Add email to combined text with clear delineation
+        email_section = f"""
+=== EMAIL {i} ===
+Subject: {content['subject']}
+From: {content['sender']}
+
+Content:
+{content['body'][:3000]}  # Limit each email to avoid token limits
+
+"""
+        all_emails_text += email_section
+    
+    # Trim total content if too long (Claude has token limits)
+    if len(all_emails_text) > 50000:  # Rough character limit
+        all_emails_text = all_emails_text[:50000] + "\n\n[Content truncated due to length...]"
+    
+    print(f"\nGenerating comprehensive summary for all {len(emails)} emails...")
+    
+    # Get single summary for all emails
+    summary = summarize_emails_batch(all_emails_text)
+    
+    print("\n" + "="*60)
+    print("COMPREHENSIVE EMAIL SUMMARY")
+    print("="*60)
+    print(summary)
+    print("="*60)
 
 if __name__ == "__main__":
     main()
