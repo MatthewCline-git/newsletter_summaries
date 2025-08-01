@@ -3,3 +3,4 @@ credentials.json
 digest.txt
 token.json
 *egg-info*
+**pycache**
