@@ -2,7 +2,10 @@ import os
 import base64
 import re
 import json
+from datetime import datetime
 from typing import List, Dict
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -10,12 +13,13 @@ from googleapiclient.discovery import build
 from google.auth.exceptions import RefreshError
 import anthropic
 from dotenv import load_dotenv
+import markdown
 
 # Load environment variables
 load_dotenv()
 
-# Gmail scope - read and modify Gmail messages
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+# Gmail scope - read, modify, and send Gmail messages
+SCOPES = ['https://www.googleapis.com/auth/gmail.modify', 'https://www.googleapis.com/auth/gmail.send']
 
 def get_gmail_service():
     """Authenticate and return Gmail service"""
@@ -52,12 +56,22 @@ def get_gmail_service():
                         token.write(creds.to_json())
                         
             except RefreshError as e:
-                raise Exception(f"Token refresh failed: {e}. Manual re-authentication required.")
-        else:
-            # No refresh token available - need interactive auth
+                print(f"Token refresh failed: {e}")
+                
+                # If we're in a cloud environment, can't do interactive auth
+                if os.getenv('RENDER') or os.getenv('DEPLOYMENT'):
+                    raise Exception(f"Token refresh failed: {e}. Manual re-authentication required.")
+                
+                # Otherwise, fall through to interactive auth below
+                print("Attempting interactive re-authentication...")
+                creds = None  # Force interactive auth
+        
+        # If we still don't have valid creds, try interactive auth
+        if not creds or not creds.valid:
+            # No refresh token available or refresh failed - need interactive auth
             if os.getenv('RENDER') or os.getenv('DEPLOYMENT'):
                 # In cloud environment, can't do interactive auth
-                raise Exception("No refresh token available and running in headless environment. Manual re-authentication required.")
+                raise Exception("No valid credentials and running in headless environment. Manual re-authentication required.")
             else:
                 # Local development - run interactive OAuth flow
                 print("Running interactive OAuth flow...")
@@ -218,6 +232,49 @@ Respond with ONLY the category name (e.g., "social_events" or "job_postings").""
         print(f"Error categorizing email: {e}")
         return 'other'
 
+def send_summary_email(service, summary_content: str, total_emails: int):
+    """Send the newsletter summary via email"""
+    sender_email = "me"  # Use authenticated Gmail account
+    recipient_email = "matthewcline1028@gmail.com"
+    
+    # Create message
+    message = MIMEMultipart()
+    message['to'] = recipient_email
+    message['from'] = sender_email
+    message['subject'] = f"Newsletter Summary - {datetime.now().strftime('%Y-%m-%d')} ({total_emails} emails)"
+    
+    # Add body with markdown formatting
+    markdown_body = f"""# Newsletter Summary
+**{datetime.now().strftime('%B %d, %Y')}**
+
+Processed **{total_emails} unread emails** and organized them by category:
+
+{summary_content}
+
+---
+*Generated automatically by Newsletter Summarizer*
+"""
+    
+    # Convert markdown to HTML
+    html_body = markdown.markdown(markdown_body)
+    
+    message.attach(MIMEText(html_body, 'html'))
+    
+    # Encode message
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+    
+    try:
+        # Send email
+        service.users().messages().send(
+            userId='me',
+            body={'raw': raw_message}
+        ).execute()
+        
+        print(f"Summary email sent successfully to {recipient_email}")
+        
+    except Exception as e:
+        print(f"Error sending summary email: {e}")
+
 def summarize_category(category_name: str, emails_in_category: List[Dict]) -> str:
     """Create a comprehensive summary for emails in a specific category"""
     client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
@@ -247,7 +304,7 @@ Content: {email_content['body'][:2500]}
     
     # Create different prompts based on category type
     if category_name == 'individual_recruitment':
-        prompt = f"""Please create a comprehensive summary for these recruitment/job opportunity emails.
+        prompt = f"""Please create a comprehensive summary for these recruitment/job opportunity emails using markdown formatting.
 
 Focus on:
 - Company names and recruiting contact information
@@ -258,11 +315,15 @@ Focus on:
 - Salary ranges if mentioned
 - Location (remote/on-site/hybrid) and office locations
 
-Format your response as a single cohesive summary that highlights the key opportunities and their requirements.
+Format your response using markdown with:
+- **Bold** for company names and job titles
+- Bullet points for requirements and key details
+- Clear organization by opportunity
+- Concise, scannable format
 
 {category_text}"""
     elif category_name == 'job_postings':
-        prompt = f"""Please create a comprehensive summary for these job posting/job board notification emails.
+        prompt = f"""Please create a comprehensive summary for these job posting/job board notification emails using markdown formatting.
 
 Focus on:
 - Job titles and company names
@@ -274,11 +335,16 @@ Focus on:
 - Notable benefits or perks mentioned
 - Industry or job category trends you notice
 
-Group similar roles together and highlight the most relevant opportunities. Format as a structured summary that helps prioritize which jobs to pursue.
+Format your response using markdown with:
+- **Bold** for job titles and company names
+- Bullet points for requirements and key details
+- Group similar roles together
+- Highlight high-priority opportunities
+- Use clear, scannable formatting
 
 {category_text}"""
     else:
-        prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails. 
+        prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails using markdown formatting.
 
 Focus on:
 - Event names, dates, and times (be specific about dates/times when mentioned)
@@ -287,7 +353,12 @@ Focus on:
 - Important links or registration information
 - Any deadlines or time-sensitive information
 
-Format your response as a single cohesive summary that someone could use to decide which events to attend. Please just include the event-level information as described. No need to add an overall explanation. 
+Format your response using markdown with:
+- **Bold** for event names and key dates
+- Bullet points for event details
+- Clear organization by event or theme
+- Highlight time-sensitive information
+- Use scannable formatting for quick decision-making
 
 {category_text}"""
 
@@ -354,22 +425,34 @@ def main():
         'culture_arts': 'Culture & Arts Events', 
         'professional_tech': 'Professional & Tech Events',
         'fashion': 'Fashion Events',
+        'individual_recruitment': 'Recruiter Outreach',
+        'job_postings': 'Job Postings',
         'other': 'Other'
     }
+    
+    # Build complete summary content for email
+    summary_content = ""
     
     for category, emails_in_cat in categories.items():
         if not emails_in_cat:  # Skip empty categories
             continue
             
         display_name = category_display_names.get(category, category.title())
-        
-        print(f"\n" + "="*80)
-        print(f"{display_name.upper()} SUMMARY ({len(emails_in_cat)} emails)")
-        print("="*80)
+        print(f"Generating {display_name.lower()} summary...")
         
         summary = summarize_category(category, emails_in_cat)
-        print(summary)
-        print("="*80)
+        
+        # Add to email content with markdown formatting
+        summary_content += f"\n## {display_name}\n"
+        summary_content += f"*{len(emails_in_cat)} emails*\n\n"
+        summary_content += summary + "\n"
+    
+    # Send summary email
+    if summary_content.strip():
+        print("\nSending summary email...")
+        send_summary_email(service, summary_content, len(emails))
+    else:
+        print("No summaries generated - no email sent.")
     
     # Mark all processed emails as read
     print(f"\nMarking {len(email_ids)} processed emails as read...")

@@ -11,5 +11,6 @@ dependencies = [
     "google-api-python-client",
     "anthropic",
     "python-dotenv",
-    "gitingest"
+    "gitingest",
+    "markdown"
 ]
