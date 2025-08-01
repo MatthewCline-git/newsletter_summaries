@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Gmail scope - just read Gmail
-SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+# Gmail scope - read and modify Gmail messages
+SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 def get_gmail_service():
     """Authenticate and return Gmail service"""
@@ -38,6 +38,26 @@ def get_gmail_service():
             token.write(creds.to_json())
     
     return build('gmail', 'v1', credentials=creds)
+
+def mark_emails_as_read(service, email_ids: List[str]):
+    """Mark a list of emails as read by removing the UNREAD label"""
+    try:
+        if not email_ids:
+            return
+            
+        # Gmail API allows batch operations
+        service.users().messages().batchModify(
+            userId='me',
+            body={
+                'ids': email_ids,
+                'removeLabelIds': ['UNREAD']
+            }
+        ).execute()
+        
+        print(f"Marked {len(email_ids)} emails as read.")
+        
+    except Exception as e:
+        print(f"Error marking emails as read: {e}")
 
 def get_unread_emails(service, max_results=50) -> List[Dict]:
     """Fetch unread emails from Gmail"""
@@ -181,7 +201,7 @@ Focus on:
 - Important links or registration information
 - Any deadlines or time-sensitive information
 
-Format your response as a single cohesive summary that someone could use to decide which events to attend.
+Format your response as a single cohesive summary that someone could use to decide which events to attend. Please just include the event-level information as described. No need to add an overall explanation. 
 
 {category_text}"""
 
@@ -217,10 +237,14 @@ def main():
     # Extract content and categorize emails
     print("Categorizing emails by topic...")
     categories = {}
+    email_ids = []  # Track email IDs for marking as read
     
     for i, email in enumerate(emails, 1):
         print(f"Processing email {i}/{len(emails)}...")
         content = extract_email_content(email)
+        
+        # Track email ID
+        email_ids.append(content['id'])
         
         # Categorize the email
         category = categorize_email(content)
@@ -259,6 +283,10 @@ def main():
         summary = summarize_category(category, emails_in_cat)
         print(summary)
         print("="*80)
+    
+    # Mark all processed emails as read
+    print(f"\nMarking {len(email_ids)} processed emails as read...")
+    mark_emails_as_read(service, email_ids)
 
 if __name__ == "__main__":
     main()
