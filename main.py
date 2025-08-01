@@ -110,27 +110,90 @@ def extract_email_content(email_msg: Dict) -> Dict:
         'id': email_msg['id']
     }
 
-def summarize_emails_batch(all_emails_text: str) -> str:
-    """Send all emails to Claude for batch summarization"""
+def categorize_email(email_content: Dict) -> str:
+    """Categorize a single email into one of the predefined topics"""
     client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
     
-    prompt = f"""Please provide a comprehensive summary of all these unread emails. For each email, give a brief summary, and then provide an overall summary at the end highlighting the most important items and any action items.
+    prompt = f"""Please categorize this email into ONE of these categories based on its content:
 
-{all_emails_text}
+1. social_events - Social gatherings, parties, meetups, casual events
+2. culture_arts - Cultural events, art shows, museums, theater, music, exhibitions
+3. professional_tech - Professional networking, tech events, conferences, workshops, career-related
+4. fashion - Fashion events, style, clothing, beauty, fashion shows
+5. other - Anything that doesn't clearly fit the above categories
 
-Please organize your response as:
-1. Individual email summaries (1-2 sentences each)
-2. Overall summary with key themes and action items"""
+Email:
+Subject: {email_content['subject']}
+From: {email_content['sender']}
+Content: {email_content['body'][:1000]}
+
+Respond with ONLY the category name (e.g., "social_events" or "culture_arts")."""
 
     try:
         response = client.messages.create(
             model="claude-3-5-sonnet-20240620",
-            max_tokens=1000,
+            max_tokens=50,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        category = response.content[0].text.strip().lower()
+        
+        # Validate category
+        valid_categories = ['social_events', 'culture_arts', 'professional_tech', 'fashion', 'other']
+        if category in valid_categories:
+            return category
+        else:
+            return 'other'
+    except Exception as e:
+        print(f"Error categorizing email: {e}")
+        return 'other'
+
+def summarize_category(category_name: str, emails_in_category: List[Dict]) -> str:
+    """Create a comprehensive summary for emails in a specific category"""
+    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+    
+    # Build the emails text for this category
+    category_text = ""
+    for i, email_content in enumerate(emails_in_category, 1):
+        email_section = f"""
+--- Email {i} ---
+Subject: {email_content['subject']}
+From: {email_content['sender']}
+Content: {email_content['body'][:2500]}
+"""
+        category_text += email_section
+    
+    category_display_names = {
+        'social_events': 'Social Events',
+        'culture_arts': 'Culture & Arts Events', 
+        'professional_tech': 'Professional & Tech Events',
+        'fashion': 'Fashion Events',
+        'other': 'Other'
+    }
+    
+    display_name = category_display_names.get(category_name, category_name.title())
+    
+    prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails. 
+
+Focus on:
+- Event names, dates, and times (be specific about dates/times when mentioned)
+- Locations and venues
+- Key highlights or featured content
+- Important links or registration information
+- Any deadlines or time-sensitive information
+
+Format your response as a single cohesive summary that someone could use to decide which events to attend.
+
+{category_text}"""
+
+    try:
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=800,
             messages=[{"role": "user", "content": prompt}]
         )
         return response.content[0].text
     except Exception as e:
-        return f"Error summarizing emails: {e}"
+        return f"Error summarizing {category_name} emails: {e}"
 
 def main():
     """Main function to process unread emails"""
@@ -151,38 +214,51 @@ def main():
         print("No unread emails found.")
         return
     
-    # Collect all emails into a single string
-    all_emails_text = ""
+    # Extract content and categorize emails
+    print("Categorizing emails by topic...")
+    categories = {}
     
     for i, email in enumerate(emails, 1):
+        print(f"Processing email {i}/{len(emails)}...")
         content = extract_email_content(email)
         
-        # Add email to combined text with clear delineation
-        email_section = f"""
-=== EMAIL {i} ===
-Subject: {content['subject']}
-From: {content['sender']}
-
-Content:
-{content['body'][:3000]}  # Limit each email to avoid token limits
-
-"""
-        all_emails_text += email_section
+        # Categorize the email
+        category = categorize_email(content)
+        
+        # Add to category group
+        if category not in categories:
+            categories[category] = []
+        categories[category].append(content)
     
-    # Trim total content if too long (Claude has token limits)
-    if len(all_emails_text) > 50000:  # Rough character limit
-        all_emails_text = all_emails_text[:50000] + "\n\n[Content truncated due to length...]"
+    # Display categorization results
+    print(f"\nEmails categorized:")
+    for category, emails_in_cat in categories.items():
+        print(f"  {category}: {len(emails_in_cat)} emails")
     
-    print(f"\nGenerating comprehensive summary for all {len(emails)} emails...")
+    # Generate summaries for each category
+    print("\nGenerating category summaries...")
     
-    # Get single summary for all emails
-    summary = summarize_emails_batch(all_emails_text)
+    category_display_names = {
+        'social_events': 'Social Events',
+        'culture_arts': 'Culture & Arts Events', 
+        'professional_tech': 'Professional & Tech Events',
+        'fashion': 'Fashion Events',
+        'other': 'Other'
+    }
     
-    print("\n" + "="*60)
-    print("COMPREHENSIVE EMAIL SUMMARY")
-    print("="*60)
-    print(summary)
-    print("="*60)
+    for category, emails_in_cat in categories.items():
+        if not emails_in_cat:  # Skip empty categories
+            continue
+            
+        display_name = category_display_names.get(category, category.title())
+        
+        print(f"\n" + "="*80)
+        print(f"{display_name.upper()} SUMMARY ({len(emails_in_cat)} emails)")
+        print("="*80)
+        
+        summary = summarize_category(category, emails_in_cat)
+        print(summary)
+        print("="*80)
 
 if __name__ == "__main__":
     main()
