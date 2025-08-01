@@ -1,1 +1,5 @@
 credentials.json
+.env
+digest.txt
+token.json
+*egg-info*

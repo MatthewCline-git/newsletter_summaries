@@ -1,0 +1,15 @@
+[project]
+name = "newsletter-summaries"
+version = "0.1.0"
+description = "Summarize newsletters"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "google-auth", 
+    "google-auth-oauthlib",
+    "google-auth-httplib2",
+    "google-api-python-client",
+    "anthropic",
+    "python-dotenv",
+    "gitingest"
+]
