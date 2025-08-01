@@ -304,7 +304,7 @@ Content: {email_content['body'][:2500]}
     
     # Create different prompts based on category type
     if category_name == 'individual_recruitment':
-        prompt = f"""Please create a comprehensive summary for these recruitment/job opportunity emails using markdown formatting.
+        prompt = f"""Please create a comprehensive summary for these recruitment/job opportunity emails using minimal markdown formatting.
 
 Focus on:
 - Company names and recruiting contact information
@@ -315,15 +315,16 @@ Focus on:
 - Salary ranges if mentioned
 - Location (remote/on-site/hybrid) and office locations
 
-Format your response using markdown with:
-- **Bold** for company names and job titles
-- Bullet points for requirements and key details
+Format your response with:
+- Simple bullet points for each opportunity
+- Each key detail on its own line for readability
 - Clear organization by opportunity
-- Concise, scannable format
+- No bold text within content
+- Clean, scannable format
 
 {category_text}"""
     elif category_name == 'job_postings':
-        prompt = f"""Please create a comprehensive summary for these job posting/job board notification emails using markdown formatting.
+        prompt = f"""Please create a comprehensive summary for these job posting/job board notification emails using minimal markdown formatting.
 
 Focus on:
 - Job titles and company names
@@ -335,16 +336,16 @@ Focus on:
 - Notable benefits or perks mentioned
 - Industry or job category trends you notice
 
-Format your response using markdown with:
-- **Bold** for job titles and company names
-- Bullet points for requirements and key details
+Format your response with:
+- Simple bullet points for each job or group of similar jobs
+- Each key detail on its own line for readability
 - Group similar roles together
-- Highlight high-priority opportunities
-- Use clear, scannable formatting
+- No bold text within content
+- Clean, scannable formatting
 
 {category_text}"""
     else:
-        prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails using markdown formatting.
+        prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails using minimal markdown formatting.
 
 Focus on:
 - Event names, dates, and times (be specific about dates/times when mentioned)
@@ -353,12 +354,12 @@ Focus on:
 - Important links or registration information
 - Any deadlines or time-sensitive information
 
-Format your response using markdown with:
-- **Bold** for event names and key dates
-- Bullet points for event details
+Format your response with:
+- Simple bullet points for each event
+- Put each detail (date, time, location, etc.) on separate lines for readability
 - Clear organization by event or theme
-- Highlight time-sensitive information
-- Use scannable formatting for quick decision-making
+- No bold text within content
+- Clean, easy-to-scan formatting
 
 {category_text}"""
 
