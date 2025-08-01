@@ -140,14 +140,29 @@ def categorize_email(email_content: Dict) -> str:
 2. culture_arts - Cultural events, art shows, museums, theater, music, exhibitions
 3. professional_tech - Professional networking, tech events, conferences, workshops, career-related
 4. fashion - Fashion events, style, clothing, beauty, fashion shows
-5. other - Anything that doesn't clearly fit the above categories
+5. individual_recruitment - Job recruitment emails from recruiters, hiring managers, or individuals at companies. This includes:
+   - Job opportunity emails from specific companies
+   - Interview invitations or scheduling
+   - Recruiter outreach about specific roles
+   - "We're hiring" messages for particular positions
+   - Follow-up emails about job applications
+   - Coffee chat requests from recruiters or hiring managers
+   - Any email primarily focused on recruiting you for a specific job/role
+6. job_postings - Automated job notifications and job board summaries. This includes:
+   - Job alerts from LinkedIn, Indeed, Glassdoor, etc.
+   - Weekly/daily job digest emails
+   - Job board notifications with multiple job listings
+   - Automated "jobs matching your criteria" emails
+   - Job recommendation emails from job sites
+   - Any email that's primarily a list or summary of multiple job openings
+7. other - Anything that doesn't clearly fit the above categories
 
 Email:
 Subject: {email_content['subject']}
 From: {email_content['sender']}
 Content: {email_content['body'][:1000]}
 
-Respond with ONLY the category name (e.g., "social_events" or "culture_arts")."""
+Respond with ONLY the category name (e.g., "social_events" or "job_postings")."""
 
     try:
         response = client.messages.create(
@@ -158,7 +173,7 @@ Respond with ONLY the category name (e.g., "social_events" or "culture_arts").""
         category = response.content[0].text.strip().lower()
         
         # Validate category
-        valid_categories = ['social_events', 'culture_arts', 'professional_tech', 'fashion', 'other']
+        valid_categories = ['social_events', 'culture_arts', 'professional_tech', 'fashion', 'individual_recruitment', 'job_postings', 'other']
         if category in valid_categories:
             return category
         else:
@@ -187,12 +202,47 @@ Content: {email_content['body'][:2500]}
         'culture_arts': 'Culture & Arts Events', 
         'professional_tech': 'Professional & Tech Events',
         'fashion': 'Fashion Events',
+        'individual_recruitment': 'Recruiter',
+        'job_postings': 'Job Postings',
         'other': 'Other'
     }
     
     display_name = category_display_names.get(category_name, category_name.title())
     
-    prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails. 
+    # Create different prompts based on category type
+    if category_name == 'individual_recruitment':
+        prompt = f"""Please create a comprehensive summary for these recruitment/job opportunity emails.
+
+Focus on:
+- Company names and recruiting contact information
+- Job titles and roles being offered
+- Key requirements or qualifications mentioned
+- Application deadlines or next steps
+- Interview requests or meeting opportunities
+- Salary ranges if mentioned
+- Location (remote/on-site/hybrid) and office locations
+
+Format your response as a single cohesive summary that highlights the key opportunities and their requirements.
+
+{category_text}"""
+    elif category_name == 'job_postings':
+        prompt = f"""Please create a comprehensive summary for these job posting/job board notification emails.
+
+Focus on:
+- Job titles and company names
+- Key requirements, skills, or qualifications mentioned
+- Salary ranges or compensation details if provided
+- Work location details (remote/on-site/hybrid/city)
+- Job types (full-time, part-time, contract, internship)
+- Application deadlines or posting dates
+- Notable benefits or perks mentioned
+- Industry or job category trends you notice
+
+Group similar roles together and highlight the most relevant opportunities. Format as a structured summary that helps prioritize which jobs to pursue.
+
+{category_text}"""
+    else:
+        prompt = f"""Please create a comprehensive summary for these {display_name.lower()} newsletters/emails. 
 
 Focus on:
 - Event names, dates, and times (be specific about dates/times when mentioned)
@@ -248,6 +298,7 @@ def main():
         
         # Categorize the email
         category = categorize_email(content)
+        print(f"  → Categorized as: {category}")
         
         # Add to category group
         if category not in categories:
